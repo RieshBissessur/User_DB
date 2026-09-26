@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Format, clippy, no-unwrap
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Install build deps (librdkafka)
+        run: sudo apt-get update && sudo apt-get install -y cmake libcurl4-openssl-dev libsasl2-dev
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: No unwrap/expect/panic in production code
+        run: bash scripts/check-unwrap.sh
+
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install build deps (librdkafka)
+        run: sudo apt-get update && sudo apt-get install -y cmake libcurl4-openssl-dev libsasl2-dev
+      - run: cargo test --workspace --lib
+
+  integration:
+    name: Integration tests (MySQL)
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          # Random per run; never committed.
+          MYSQL_ROOT_PASSWORD: ${{ secrets.CI_MYSQL_ROOT_PASSWORD || format('ci-{0}', github.run_id) }}
+          MYSQL_DATABASE: user_service
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -p$DB_PASS"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install build deps (librdkafka)
+        run: sudo apt-get update && sudo apt-get install -y cmake libcurl4-openssl-dev libsasl2-dev
+      - name: Run integration tests
+        env:
+          MYSQL_ROOT_PASSWORD: ${{ secrets.CI_MYSQL_ROOT_PASSWORD || format('ci-{0}', github.run_id) }}
+          # root is required: #[sqlx::test] creates throwaway databases.
+          DATABASE_URL: mysql://root:${{ secrets.CI_MYSQL_ROOT_PASSWORD || format('ci-{0}', github.run_id) }}@127.0.0.1:3306/user_service
+        run: cargo test --workspace --tests
+
+  e2e:
+    name: E2E (docker compose)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate local credentials
+        run: bash scripts/init-env.sh
+      - name: Build and start the stack
+        run: docker compose up --build -d
+      - name: Wait for services
+        run: |
+          for i in $(seq 1 90); do
+            if curl -fsS http://localhost:3030/health >/dev/null \
+               && curl -fsS http://localhost:3031/health >/dev/null; then
+              echo "services healthy after ${i}s"; exit 0
+            fi
+            sleep 2
+          done
+          echo "services did not become healthy in time"; docker compose logs; exit 1
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install build deps (librdkafka)
+        run: sudo apt-get update && sudo apt-get install -y cmake libcurl4-openssl-dev libsasl2-dev
+      - name: Run e2e tests
+        run: |
+          set -a; . ./.env; set +a
+          cargo test -p e2e -- --ignored --test-threads=1
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

@@ -1,5 +1,21 @@
-/target
-AdminData/
+# Build artifacts
+/target/
+**/target/
+
+# Local secrets / generated files (never committed)
+.env
+.env.local
+PLAN.md
+
+# Editors / IDEs
 .vscode/
-Cargo.lock
+.idea/
+*.swp
+*.swo
+
+# OS cruft
 .DS_Store
+Thumbs.db
+
+# Logs
+*.log

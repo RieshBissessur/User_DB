@@ -1,0 +1,20 @@
+[package]
+name = "db-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+# Schema-agnostic database plumbing shared by the services: connection pool,
+# migration runner, and a small injection-safe SELECT builder.
+#
+# Deliberately knows nothing about any service's schema. MySQL-specific SQL
+# (upserts, DATETIME arithmetic, joins, aggregates) stays in each service's
+# `src/db/repo.rs`.
+
+[dependencies]
+sqlx = { version = "0.8", default-features = false, features = ["mysql", "runtime-tokio", "migrate"] }
+
+[dev-dependencies]
+sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio"] }
+tokio = { workspace = true }
+tempfile = "3"

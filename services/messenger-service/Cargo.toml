@@ -1,0 +1,35 @@
+[package]
+name = "messenger-service"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+name = "messenger_service"
+path = "src/lib.rs"
+
+[[bin]]
+name = "messenger-service"
+path = "src/main.rs"
+
+[dependencies]
+warp = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+sqlx = { version = "0.8", features = ["mysql", "runtime-tokio", "migrate", "chrono", "macros", "json"] }
+dotenvy = "0.15"
+reqwest = { version = "0.11", features = ["json"] }
+lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "builder"] }
+async-trait = "0.1"
+uuid = { version = "1", features = ["v4"] }
+rdkafka = { version = "0.36", features = ["cmake-build", "tokio"] }
+events = { path = "../../crates/events" }
+db-core = { path = "../../crates/db-core" }
+
+[dev-dependencies]
+wiremock = "0.6"
+async-trait = "0.1"

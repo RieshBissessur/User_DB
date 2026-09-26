@@ -1,60 +1,75 @@
-# Login_User_DB
-A Rust database project with user registraction, login and the abilty to reset your password
+# Pattern Shop
 
-This is dependant on RUST being installed
+Two Rust services, each with its own MySQL database, connected by Kafka.
 
-Rust can be installed by following these instructions:
+```mermaid
+flowchart LR
+    Client([Client]) -->|HTTP :3030| US[user-service]
+    Ops([Operator / e2e]) -->|HTTP :3031| MS[messenger-service]
 
-	https://www.rust-lang.org/tools/install
+    US --> UDB[(user_service<br/>MySQL)]
+    MS --> MDB[(messenger_service<br/>MySQL)]
 
-Or on Mac OS X using this curl command:
+    US -->|outbox → produce| K{{Kafka · user-events}}
+    K -->|consume| MS
+    MS -->|SMTP| MP[mailpit]
+    MS -->|HTTPS| SG[SendGrid]
+```
 
-	curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh 
+- **user-service** (`:3030`) — accounts, sessions, password reset. Writes each event to an
+  outbox in the same transaction; a poller publishes it.
+- **messenger-service** (`:3031`) — consumes events, picks a provider, renders and sends
+  (SendGrid or SMTP), records the result. Idempotent per `event_id`.
 
-<br>
+## Docs
 
-Building the Console Application
-=====================================================================================================================================================================
-To build or run a new exectuable Rust must be installed.
-- ## Build an executable
-    - In the project directory run the following commands to build to the target directory from which you can run the executable file.
-  
-  - ``` cargo build ```
-  <br>
+- [`docs/setup.md`](docs/setup.md) — one-time setup (prerequisites, credentials, hook)
+- [`docs/running.md`](docs/running.md) — run, debug, smoke-test, all test commands
+- [`docs/architecture.md`](docs/architecture.md) — how it fits together
+- [`docs/user-service.md`](docs/user-service.md) / [`docs/messenger-service.md`](docs/messenger-service.md) — API, flows, data model
+- [`AGENTS.md`](AGENTS.md) — conventions for agents
 
-- ## Compile and run the console application
-  - In the project directory run the following commands to compile and run the console application.
- 
-  - ```  cargo run ```
+## Layout
 
-<br>
+```
+crates/db-core/               # shared DB plumbing (pool, migrations, safe SELECT builder)
+crates/events/                # Kafka event contract
+services/user-service/        # :3030 — src/db/ + migrations/
+services/messenger-service/   # :3031 — src/db/ + migrations/
+e2e/                          # cross-service tests
+docker-compose.yml            # mysql, kafka, mailpit, both services
+docs/                         # documentation
+```
 
+## Quick start (local dev: infra in Docker, services with cargo)
 
-Server Requests
-=====================================================================================================================================================================
+```sh
+make env         # 1. write .env with random DB credentials (git-ignored)
+make hooks       # 2. optional: install the pre-commit hook
+make infra-up    # 3. start mysql + kafka + mailpit
+make dev         # 4. run both services; Ctrl-C stops both
+```
 
-## Get Requests
-- ## General requests
-  - Health check: {URl}:{Port}/health
-    - Responds with a 200 to show the server is healthy 
+## Full stack in Docker (no cargo needed)
 
-## Post Requests
-- ### Register
-  - Create an account by sending account details: {URl}:{Port}/register
-    - Json body for post contains a username, email and a password as strings
+```sh
+make up          # build + start everything detached
+make down        # stop and delete the databases
+```
 
-- ### Login
-  - Login and create a session key by sending username and password: {URl}:{Port}/login
-    - Json body for the post contains a username/email and password as strings and a version as float
+| Service | URL |
+|---|---|
+| user-service | http://localhost:3030 |
+| messenger-service | http://localhost:3031 |
+| mailpit UI (emails) | http://localhost:8025 |
+| kafka-ui (optional) | http://localhost:8080 (`--profile debug`) |
 
-- ### Get User Data
-  - Reteive user data by sending username and session key: {URl}:{Port}/user_data
-    - Json body for the post contains a username, password as strings
+## Testing
 
-- ### Request Password Reset
-  - Request a password reset by sending an email address: {URl}:{Port}/reset_request
-    - Json body for the post contains an email address
-
-- ### Submit OTP and new password
-  - Reteive user data by sending the email, otp recieved and new password: {URl}:{Port}/check_otp
-    - Json body for the post contains a email, otp recieved and new password as strings 
+```sh
+make test-unit          # pure logic
+make test-integration   # service tests against MySQL
+make test-e2e           # full stack + cross-service tests
+make test               # all three
+make check              # fmt + clippy + no-unwrap gates
+```

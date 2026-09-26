@@ -1,0 +1,33 @@
+[package]
+name = "user-service"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+name = "user_service"
+path = "src/lib.rs"
+
+[[bin]]
+name = "user-service"
+path = "src/main.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+warp = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+chrono = { workspace = true }
+rand = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
+crypto-hash = "0.3.4"
+argon2 = "0.5"
+sqlx = { version = "0.8", features = ["mysql", "runtime-tokio", "migrate", "chrono", "macros"] }
+dotenvy = "0.15"
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+rdkafka = { version = "0.36", features = ["cmake-build", "tokio", "libz"] }
+events = { path = "../../crates/events" }
+db-core = { path = "../../crates/db-core" }

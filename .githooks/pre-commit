@@ -1,0 +1,32 @@
+#!/usr/bin/env sh
+# Non-breaking Rust cleanup + gates before each commit.
+# Bypass with: git commit --no-verify
+set -e
+cd "$(git rev-parse --show-toplevel)"
+
+# No cargo toolchain (docs-only change)? Then nothing to clean up.
+command -v cargo >/dev/null 2>&1 || exit 0
+
+# Only re-stage rust files that were already staged (never pull in unrelated edits).
+staged_rs=$(git diff --cached --name-only --diff-filter=ACM -- '*.rs')
+
+echo "[pre-commit] cargo fmt"
+cargo fmt --all
+for f in $staged_rs; do
+  [ -f "$f" ] && git add -- "$f"
+done
+
+echo "[pre-commit] cargo clippy --fix"
+cargo clippy --workspace --all-targets --fix --allow-dirty --allow-staged 2>&1 | grep -v "Checking\|Finished" || true
+for f in $staged_rs; do
+  [ -f "$f" ] && git add -- "$f"
+done
+
+echo "[pre-commit] clippy gate"
+cargo clippy --workspace --all-targets -- -D warnings
+
+echo "[pre-commit] unit tests"
+cargo test --workspace --lib --quiet
+
+echo "[pre-commit] no-unwrap gate"
+bash scripts/check-unwrap.sh

@@ -1,0 +1,105 @@
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      # Generated into .env by `make env`; fail fast if missing.
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?run 'make env' first}
+      USER_SVC_PASSWORD: ${USER_SVC_PASSWORD:?run 'make env' first}
+      MESSENGER_SVC_PASSWORD: ${MESSENGER_SVC_PASSWORD:?run 'make env' first}
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./docker/mysql/init.sh:/docker-entrypoint-initdb.d/init.sh:ro
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:?run 'make env' first}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  kafka:
+    image: apache/kafka:3.7.0
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,PLAINTEXT_HOST://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_NUM_PARTITIONS: "3"
+      KAFKA_DEFAULT_REPLICATION_FACTOR: "1"
+      KAFKA_MIN_INSYNC_REPLICAS: "1"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  user-service:
+    build:
+      context: .
+      dockerfile: services/user-service/Dockerfile
+    environment:
+      DATABASE_URL: mysql://user_svc:${USER_SVC_PASSWORD:?run 'make env' first}@mysql:3306/user_service
+      SERVICE_PORT: "${SERVICE_PORT:-3030}"
+      OTP_TTL_MINUTES: "${OTP_TTL_MINUTES:-120}"
+      KAFKA_BROKERS: kafka:9092
+      RUST_LOG: "${RUST_LOG:-info}"
+    ports:
+      - "3030:3030"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  messenger-service:
+    build:
+      context: .
+      dockerfile: services/messenger-service/Dockerfile
+    environment:
+      MESSENGER_DATABASE_URL: mysql://messenger_svc:${MESSENGER_SVC_PASSWORD:?run 'make env' first}@mysql:3306/messenger_service
+      MESSENGER_PORT: "${MESSENGER_PORT:-3031}"
+      KAFKA_BROKERS: kafka:9092
+      SENDGRID_API_KEY: "${SENDGRID_API_KEY:-}"
+      SENDGRID_BASE_URL: "${SENDGRID_BASE_URL:-https://api.sendgrid.com}"
+      SMTP_FROM: "${SMTP_FROM:-no-reply@pattern-shop.local}"
+      RUST_LOG: "${RUST_LOG:-info}"
+    ports:
+      - "3031:3031"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      mailpit:
+        condition: service_started
+
+  # Optional debug UI: `docker compose --profile debug up`
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    profiles: ["debug"]
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    depends_on:
+      kafka:
+        condition: service_started
+
+volumes:
+  mysql_data:

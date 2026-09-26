@@ -1,0 +1,17 @@
+[package]
+name = "e2e"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+# Cross-service end-to-end tests. They require the full docker compose stack
+# and are marked #[ignore] so `cargo test --workspace` stays green without it.
+# Run with: `make test-e2e` (or `cargo test -p e2e -- --ignored --test-threads=1`).
+
+[dependencies]
+reqwest = { version = "0.11", features = ["json"] }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+sqlx = { version = "0.8", features = ["mysql", "runtime-tokio", "chrono"] }
+chrono = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
